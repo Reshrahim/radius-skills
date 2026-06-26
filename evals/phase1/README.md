@@ -1,0 +1,153 @@
+# Phase 1 evaluation — app-modeling skill
+
+Phase 1 of the [evaluation methodology](../METHODOLOGY.md): run the Radius
+`app-modeling` skill on a target repo and grade the generated `.radius/app.bicep`
+against two **non-circular** sources of truth — no AI-authored golden.
+
+## Sources of truth
+
+1. **Schema oracle** (`oracle/`) — the per-type `test/app.bicep` files vendored
+   from [`resource-types-contrib`](https://github.com/radius-project/resource-types-contrib)
+   at a pinned SHA. This is the project-maintained answer key for *schema*:
+   supported types, API versions, the base `extension radius`, and the set of
+   valid top-level `properties:` keys for each type. Refresh with
+   `./refresh_oracle.sh`.
+2. **Target spec** (`targets/<name>/target.json`) — a small, repo-derived
+   checklist of the components, connections, and catalog gaps the app actually
+   needs. This grades *per-app completeness*.
+
+Because the schema half comes from contrib (human-maintained) and not from an
+AI-authored file, the eval can catch cases where the **skill itself has drifted**
+from the current schemas (wrong application type, outdated API version, removed
+properties). When the skill is wrong, a faithful agent will — correctly — fail.
+
+## Guardrail
+
+Copilot is the agent under test. This harness never generates or fixes the app
+model. It only prepares the workspace, collects Copilot's output, scores it
+against the oracle + target spec, and reports.
+
+## Commands
+
+```bash
+# Full flow: prepare workspace, invoke Copilot N times, aggregate, report
+bin/eval-app-modeling run --target example-voting-app --runs 5
+
+# Full flow + the multi-agent evaluator (vector agents + remediation)
+bin/eval-app-modeling run --target example-voting-app --runs 5 --evaluate
+
+# Run the multi-agent evaluator over an already-scored run dir
+bin/eval-app-modeling evaluate --run runs/run-YYYYMMDD-HHMMSS
+
+# Test whether natural prompts actually trigger the skill (recall/precision)
+bin/eval-app-modeling invocation --target example-voting-app --runs 3
+
+# Score an already-generated file
+bin/eval-app-modeling score --target todo-list-app \
+  --candidate path/to/.radius/app.bicep
+
+# Inspect the oracle profile
+python3 evals/phase1/oracle.py
+```
+
+`run` clones the target, then for each of `--runs N` (default 5) removes any
+existing `.radius/app.bicep`, invokes Copilot, and scores. Because generation is
+stochastic, results are **aggregated per check** into `aggregate.json` /
+`aggregate.md`, separating *consistent* failures (fail every run = real skill
+bug) from *flaky* ones. If the Copilot CLI is unavailable, `run` stops after
+prepare and tells you to generate manually, then score with `score`.
+
+## What it checks (four vectors)
+
+| Vector | Graded against | Measures |
+| ------ | -------------- | -------- |
+| Application understanding | target spec | expected components, connections, and catalog gaps are modeled |
+| Resource type mapping | oracle catalog | every type is a real Radius type; API version matches contrib |
+| Model generation | oracle schema + compile | compile gate (hard zero on failure), base extension, single application, no invented/outdated properties, `containerPort`, top-level connections, secure password |
+| Skill conformance | oracle + contract | output location, supported types only, no comments |
+
+Each check is worth **1 point**. A vector's score is `points earned / max
+points` (the number of checks that ran for this app), and the report also shows
+an overall **Total** across all vectors. A full per-check breakdown lists every
+check with its 1/0 award, so the score is never a black box. Failures are
+classified as **agent_failure** (the agent missed something the app needs),
+**skill_weakness** (the skill steered the agent wrong, e.g. drift from contrib),
+or **catalog_gap** (a real technology with no Radius type yet).
+
+## Compile gate
+
+The gate tries `bicep build` / `az bicep build`. Radius Bicep needs the radius
+extensions resolved locally; if that setup is missing, the gate reports
+`unavailable` (structural checks only) rather than `failed`, so a local tooling
+gap never looks like a skill failure. Deployment-time validation is Phase 2.
+
+## Agent design
+
+The deterministic scorer gives the trustworthy *number*; a layer of AI agents
+finds and explains faults the hand-coded checks cannot. Three agent roles:
+
+```
+GENERATION ──► SCORING (fan-out) ──► REMEDIATION
+ skill run      4 vector agents       aggregate faults
+ → app.bicep    det. seed + AI        → remediation.md
+ (×N runs)      → agents/<slug>.json  (prioritized fixes)
+```
+
+1. **Generation agent** (the agent under test) — Copilot runs the staged skill
+   and writes `.radius/app.bicep`, repeated `--runs N` times (stochastic).
+2. **Vector agents** (4, parallel — one per vector) — each reads its
+   **deterministic seed** (the scorer's per-check pass-rates, trusted as a tool
+   result), then adds **AI judgment** for what determinism misses (semantic
+   mis-maps, dropped components, partial overfit), tracing every fault to a skill
+   `file:line` with a before→after fix. Writes `agents/<slug>.json`.
+3. **Remediation agent** — clusters faults by shared root cause, ranks by points
+   recovered × reliability (consistent vs flaky), writes a minimal
+   `remediation.md`.
+
+Two principles keep this honest: the **deterministic score stays the source of
+truth** (graded vs the contrib oracle, never an AI golden — agents only extend
+and explain, they never silently re-grade); and agents use **deterministic tools
+inside** (grep, reading the oracle JSON/bicep) so every claim is tool-backed.
+
+Coverage/dropout detection: the understanding and generation agents enumerate
+every source service and check *all* runs, catching omissions (e.g. a redis
+queue dropped in one run) that the omission-tolerant deterministic check rewards
+as "handled."
+
+## Skill invocation test
+
+A separate dimension from the four content vectors, which assume the skill is
+already loaded. `invocation` stages the skill so Copilot can **auto-discover** it
+(via `.github/skills/`) but never names it in the prompt, then runs a set of
+natural phrasings (`invocation/phrases.json`): **positives** that should trigger
+the skill and **negatives** (incl. near-misses) that should not. It detects
+whether the skill actually loaded and reports **recall** (positives that fired)
+and **precision** (loads that were correct) into `invocation.md`.
+
+## Layout
+
+```
+evals/phase1/
+  eval_app_modeling.py     CLI: run + score + evaluate + invocation
+  bicep_model.py           bicep -> property model
+  oracle.py                builds the schema oracle from oracle/*
+  scorer.py                four-vector comparison (oracle + target driven)
+  evaluator.py             multi-agent evaluator (4 vector agents + remediation)
+  invocation.py            skill-triggering test (recall/precision)
+  refresh_oracle.sh        re-vendor oracle from resource-types-contrib
+  oracle/
+    SOURCE.json            contrib repo + pinned SHA
+    catalog.json           supported Radius types
+    <Category>/<type>/app.bicep   vendored contrib test files
+  targets/<name>/
+    target.json            repo, sha, app name, expected components + gaps
+  invocation/
+    phrases.json           positive/negative trigger phrases
+  runs/                    generated output + reports (gitignored)
+```
+
+## Adding a target
+
+Create `targets/<name>/target.json` describing the repo and its expected
+components, connections, and catalog gaps (see existing targets), then run with
+`--target <name>`. No golden file is needed.

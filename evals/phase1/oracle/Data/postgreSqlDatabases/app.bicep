@@ -1,0 +1,71 @@
+extension radius
+extension postgreSqlDatabases
+
+@description('The Radius environment ID')
+param environment string
+
+@secure()
+param password string
+
+resource myapp 'Radius.Core/applications@2025-08-01-preview' = {
+  name: 'myapp'
+  properties: {
+    environment: environment
+  }
+}
+
+resource mycontainer 'Radius.Compute/containers@2025-08-01-preview' = {
+  name: 'mycontainer'
+  properties: {
+    environment: environment
+    application: myapp.id
+    containers: {
+      demo: {
+        image: 'ghcr.io/radius-project/samples/demo:latest'
+          ports: {
+            web: {
+              containerPort: 3000
+            }
+          }
+        }
+      }
+    connections: {
+      postgresql: {
+        source: postgresql.id
+        
+      }
+    }
+  }
+}
+
+resource postgresql 'Radius.Data/postgreSqlDatabases@2025-08-01-preview' = {
+  name: 'postgresql'
+  properties: {
+    environment: environment
+    application: myapp.id
+    size: 'S'
+    secretName: dbSecret.name
+    initSql: '''
+      CREATE TABLE IF NOT EXISTS demo (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255)
+      );
+    '''
+  }
+}
+
+resource dbSecret 'Radius.Security/secrets@2025-08-01-preview' = {
+  name: 'dbsecret'
+  properties: {
+    environment: environment
+    application: myapp.id
+    data: {
+      USERNAME: {
+        value: 'admin'
+      }
+      PASSWORD: {
+        value: password
+      }
+    }
+  }
+}

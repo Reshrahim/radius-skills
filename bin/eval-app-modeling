@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper for the Phase 1 app-modeling evaluation harness.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$HERE/../evals/phase1/eval_app_modeling.py" "$@"

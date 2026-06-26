@@ -1,0 +1,5 @@
+{
+  "repo": "https://github.com/radius-project/resource-types-contrib",
+  "sha": "f87d8c0daa75e805d11124c13fad1ff23f728f31",
+  "note": "Per-type test/app.bicep files used as the authoritative schema oracle. Do not edit by hand; refresh with refresh_oracle.sh."
+}

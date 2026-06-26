@@ -1,0 +1,36 @@
+{
+  "name": "example-voting-app",
+  "app_name": "example-voting-app",
+  "repo": "https://github.com/dockersamples/example-voting-app",
+  "sha": "main",
+  "pattern": "Microservices",
+  "expected_components": [
+    {
+      "id": "vote",
+      "kind": "container",
+      "resource_type": "Radius.Compute/containers"
+    },
+    {
+      "id": "result",
+      "kind": "container",
+      "resource_type": "Radius.Compute/containers"
+    },
+    {
+      "id": "worker",
+      "kind": "container",
+      "resource_type": "Radius.Compute/containers"
+    },
+    {
+      "id": "db",
+      "kind": "datastore",
+      "resource_type": "Radius.Data/postgreSqlDatabases"
+    }
+  ],
+  "expected_catalog_gaps": [
+    {
+      "technology": "redis",
+      "reason": "no Radius.Data/redisCaches in the supported catalog"
+    }
+  ],
+  "notes": "Multi-container microservices app. Redis is a real dependency with no supported Radius type; modeling it is a catalog gap, not an agent failure. Published images exist (dockersamples/examplevotingapp_*)."
+}

@@ -1,0 +1,20 @@
+{
+  "_about": "Phrases used to test whether the app-modeling skill ACTUALLY triggers from natural user prompts (the skill is discoverable in .github/skills/ but never named in the prompt). Positives should load the skill; negatives (incl. near-misses like deploy/analysis intents) should not.",
+  "positives": [
+    "model this repo for Radius",
+    "model this repo",
+    "create a Radius application definition for this app",
+    "generate the app.bicep for this application",
+    "model this application for Radius",
+    "I want to run this app on Radius — set up the application model",
+    "turn this repository into a Radius app",
+    "create the Radius app model for this service"
+  ],
+  "negatives": [
+    "write a Dockerfile for this app",
+    "explain what Radius is",
+    "list the runtime dependencies in this repository",
+    "add a health check endpoint to the vote service",
+    "what is my application"
+  ]
+}

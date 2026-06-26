@@ -1,0 +1,13 @@
+{
+  "supported_types": [
+    "Radius.Compute/containerImages",
+    "Radius.Compute/containers",
+    "Radius.Compute/persistentVolumes",
+    "Radius.Compute/routes",
+    "Radius.Core/applications",
+    "Radius.Data/mySqlDatabases",
+    "Radius.Data/neo4jDatabases",
+    "Radius.Data/postgreSqlDatabases",
+    "Radius.Security/secrets"
+  ]
+}

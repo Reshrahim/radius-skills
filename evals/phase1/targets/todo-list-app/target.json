@@ -1,0 +1,27 @@
+{
+  "name": "todo-list-app",
+  "app_name": "todo-list-app",
+  "repo": "https://github.com/dockersamples/todo-list-app",
+  "sha": "main",
+  "pattern": "Stateful / Database-Backed Application",
+  "expected_components": [
+    {
+      "id": "todo-container",
+      "kind": "container",
+      "resource_type": "Radius.Compute/containers"
+    },
+    {
+      "id": "mysql",
+      "kind": "datastore",
+      "resource_type": "Radius.Data/mySqlDatabases"
+    }
+  ],
+  "expected_connections": [
+    {
+      "from": "container",
+      "to": "datastore",
+      "key": "mysqldb"
+    }
+  ],
+  "skill_example_app": true
+}

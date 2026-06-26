@@ -63,9 +63,52 @@ The evaluation should run in phases. Every phase evaluates the same four vectors
 
 | Phase                                   | Scope                                                                                                                                                               | How the four vectors are evaluated                                                                                                                                                                       | Output                                                                                                                      |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Phase 1: Copilot baseline evaluation    | Run Copilot on 5 baseline evaluation target with a golden, deployable `app.bicep`.                                                                                | Compare the generated model to the golden `app.bicep` by properties, not raw text: services found, dependencies modeled, Radius types used, connections wired, Bicep compiled, and skill rules followed. | Confirms whether the current Copilot flow can generate a functionally correct Radius model for a known deployable baseline. |
-| Phase 2: Automated baseline evaluation  | Use the same baseline target and golden `app.bicep`, but automate the comparison and scoring.                                                                       | Parse the generated and golden `app.bicep` files into comparable properties, then run automated checks for compile, schema, connection shape, resource types, and skill violations.                      | Produces repeatable scoring, structured results, and recurring failure patterns for the baseline.                           |
+| Phase 1: Copilot baseline evaluation    | Run Copilot on a baseline target and grade the generated `app.bicep` against two non-circular sources of truth (no AI-authored golden): a schema **oracle** vendored from `resource-types-contrib`, and a small per-app **target spec**.                                                                | Each of the four vectors is scored deterministically (1 point per check) against the oracle + target spec. Generation is repeated **N times** and aggregated per check to separate consistent skill bugs from flaky ones. A layer of **AI agents** (4 vector agents + a remediation agent) then audits the same vectors to surface faults determinism misses and write a prioritized skill-fix plan. A separate **invocation test** checks whether natural prompts actually trigger the skill (recall/precision). | Confirms whether the current Copilot flow reliably generates a correct Radius model, and produces an actionable, root-caused list of skill fixes. |
+| Phase 2: Automated baseline evaluation  | Use the same baseline target, but automate the comparison and scoring against the oracle + target spec.                                                                       | Parse the generated `app.bicep` into comparable properties, then run automated checks for compile, schema, connection shape, resource types, and skill violations.                      | Produces repeatable scoring, structured results, and recurring failure patterns for the baseline.                           |
 | Phase 3: Broader corpus evaluation      | Expand to the other baseline and advanced repositories, where correctness is derived from repo artifacts and expected properties rather than a golden file for each repo. | Score the same four vectors, but separate skill failures from catalog gaps. Unsupported dependencies should be recorded as missing resource types or recipes, not treated as pure failures.              | Identifies hard app patterns, missing catalog coverage, and skill instructions that need improvement.                       |
 | Phase 4: Runtime reliability evaluation | Run the same evaluation across agents, models, and tools beyond the initial Copilot path.                                                                           | Compare scores and variance across runtimes for the same vectors and evaluation targets.                                                                                                                 | Shows whether the skill is portable as an instruction artifact or tightly coupled to one runtime.                           |
 
 The end goal is a feedback loop. Each run should point to the next action: update the app-modeling skill, expand the resource type catalog, improve recipes, fix samples, or adjust the evaluation corpus.
+
+## Phase 1 implementation
+
+Phase 1 is implemented under [`evals/phase1/`](phase1/) (see its README for
+commands). It refines the original golden-file idea into a **non-circular,
+agent-assisted** design:
+
+- **Ground truth without an AI golden.** Schema correctness is graded against a
+  schema **oracle** — the per-type `test/app.bicep` files vendored from
+  `resource-types-contrib` at a pinned SHA (supported types, API versions, valid
+  properties). Per-app completeness is graded against a tiny repo-derived
+  **target spec**. Because the answer key is project-maintained rather than
+  AI-authored, the eval can catch cases where the **skill itself has drifted**
+  from current schemas; a faithful agent then correctly fails.
+
+- **Multi-run aggregation.** Generation is stochastic, so each target is run
+  `N` times (default 5) and scored per check. Results are aggregated into
+  pass-rates that separate **consistent failures** (fail every run = real skill
+  bug) from **flaky** ones, so fixes are ranked by how reliably a check fails.
+
+- **Agent design (deterministic score + AI fault-finding).** The deterministic
+  scorer produces the trustworthy number; a layer of agents finds and explains
+  faults the hand-coded checks cannot:
+  - a **generation agent** (the skill under test) writes `.radius/app.bicep`;
+  - four **vector agents** (one per vector, run in parallel) each take the
+    deterministic per-check result as a trusted seed, add AI judgment for what
+    determinism misses (semantic mis-maps, dropped components, partial overfit),
+    and trace every fault to a skill `file:line` with a before→after fix;
+  - a **remediation agent** clusters faults by root cause and writes a minimal,
+    prioritized skill-fix plan.
+  The deterministic score stays the source of truth — agents extend and explain,
+  they never silently re-grade — and agents use deterministic tools (grep,
+  reading the oracle) so claims are tool-backed.
+
+- **Coverage / dropout detection.** The understanding and generation agents
+  enumerate every source service and check all runs, catching omissions (e.g. a
+  redis queue dropped in one run) that an omission-tolerant deterministic check
+  would otherwise reward as "handled."
+
+- **Skill invocation test.** Separate from the four content vectors (which assume
+  the skill is loaded), this stages the skill so Copilot can auto-discover it but
+  never names it in the prompt, then runs positive and negative phrasings to
+  measure trigger **recall** and **precision**.
