@@ -5,8 +5,11 @@ Grading is driven by two non-circular sources of truth:
   1. The schema oracle (oracle.py) built from resource-types-contrib
      `test/app.bicep` files — the project-maintained answer key for *schema*
      (supported types, API versions, base extension, top-level property names).
-  2. The per-app target spec (target.json) — a small, repo-derived checklist of
-     the components, connections, and catalog gaps the app actually needs.
+  2. The per-app target spec (target.json) — a small, repo-derived description of
+     the app's components (services and datastores, by technology) and the
+     connections between them. It describes the application, not Radius: the
+     technology->Radius-type mapping (and catalog-gap detection) lives in
+     mapping.py, grounded in the oracle catalog.
 
 There is no AI-authored golden in the loop. The scorer never mutates anything;
 it only reads the candidate model and compares it to the oracle and the target.
@@ -24,6 +27,7 @@ from dataclasses import dataclass, field
 
 from bicep_model import BicepModel
 from oracle import Oracle
+import mapping
 
 
 @dataclass
@@ -95,13 +99,17 @@ def score_understanding(candidate: BicepModel, target: dict, oracle: Oracle) -> 
     cand_types = [r.type for r in candidate.resources]
 
     for comp in target.get("expected_components", []):
-        rtype = comp["resource_type"]
-        present = rtype in cand_types
+        m = mapping.resolve(comp.get("kind", "service"), comp.get("technology", ""), oracle)
+        present = m.rtype in cand_types
+        tech = comp.get("technology")
+        label = f"{comp.get('kind', 'service')} '{comp['id']}'"
+        if tech:
+            label += f" ({tech})"
         checks.append(
             Check(
                 f"models:{comp['id']}",
                 present,
-                f"expected {comp['kind']} '{comp['id']}' as {rtype}; "
+                f"expected {label} as {m.rtype}; "
                 f"{'present' if present else 'missing'}",
                 "agent_failure",
             )
@@ -118,28 +126,31 @@ def score_understanding(candidate: BicepModel, target: dict, oracle: Oracle) -> 
             )
         )
 
-    for gap in target.get("expected_catalog_gaps", []):
-        # The agent handles a known gap correctly by NOT modeling that technology
-        # with an invented type. Look only for candidate types that plausibly
-        # represent the gap tech (by keyword) — unrelated drift is penalized by
-        # the other vectors, not here.
-        tech = gap["technology"].lower()
-        keywords = {tech} | set(gap.get("aliases", []))
+    # Catalog gaps are DERIVED, not hand-listed: any datastore component whose
+    # technology has no supported Radius type. The agent handles a gap correctly by
+    # modeling it as a container (its upstream image), never by inventing a type.
+    for comp in target.get("expected_components", []):
+        if comp.get("kind") != "datastore":
+            continue
+        m = mapping.resolve("datastore", comp.get("technology", ""), oracle)
+        if not m.is_gap:
+            continue
+        tech = (comp.get("technology") or comp["id"]).lower()
         invented = sorted(
             {
                 r.type
                 for r in candidate.resources
-                if any(k in r.type.lower() for k in keywords)
+                if tech in r.type.lower()
             }
         )
         checks.append(
             Check(
-                f"catalog_gap:{gap['technology']}",
+                f"catalog_gap:{tech}",
                 not invented,
-                f"{gap['technology']} has no supported type ({gap['reason']}); "
+                f"{tech} has no supported type ({m.reason}); "
                 f"agent handled it by omission"
                 if not invented
-                else f"{gap['technology']} modeled with an invented type {invented}",
+                else f"{tech} modeled with an invented type {invented}",
                 "catalog_gap",
             )
         )
@@ -158,12 +169,13 @@ def score_mapping(
 
     # every expected component maps to a real type that the candidate used
     for comp in target.get("expected_components", []):
-        rtype = comp["resource_type"]
+        m = mapping.resolve(comp.get("kind", "service"), comp.get("technology", ""), oracle)
         checks.append(
             Check(
                 f"maps:{comp['id']}",
-                rtype in cand_types,
-                f"{comp['id']} should map to {rtype}",
+                m.rtype in cand_types,
+                f"{comp['id']} should map to {m.rtype}"
+                + (f" (catalog gap: {m.reason})" if m.is_gap else ""),
                 "skill_weakness",
             )
         )

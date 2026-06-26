@@ -566,6 +566,30 @@ def _stamp() -> str:
     return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+def cmd_derive_target(args: argparse.Namespace) -> None:
+    import derive_target as dt
+
+    workspace = os.path.join(RUNS_DIR, f"derive-{_stamp()}")
+    os.makedirs(workspace, exist_ok=True)
+    meta = {"name": args.name, "repo": args.repo, "sha": args.sha}
+    print(f"[derive-target] {args.name} from {args.repo} (sha={args.sha})")
+    repo_dir = prepare_workspace(meta, workspace)
+    target = dt.build_target(
+        args.name, args.repo, args.sha, repo_dir, use_agent=not args.no_agent
+    )
+    path = dt.write_target(target)
+    shutil.rmtree(workspace, ignore_errors=True)
+    n_comp = len(target["expected_components"])
+    n_conn = len(target.get("expected_connections", []))
+    n_store = sum(1 for c in target["expected_components"] if c.get("kind") == "datastore")
+    print(
+        f"\n  wrote {path}\n"
+        f"  method: {target['derivation']['method']} | "
+        f"components {n_comp} ({n_store} datastore) | connections {n_conn}\n"
+        f"  ratified: false — review the file, then set \"ratified\": true to pin it."
+    )
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="eval-app-modeling")
     sub = p.add_subparsers(dest="command", required=True)
@@ -610,6 +634,20 @@ def main() -> None:
         help="runs per phrase (triggering is stochastic; default 3)",
     )
     pi.set_defaults(func=cmd_invocation)
+
+    pd = sub.add_parser(
+        "derive-target",
+        help="derive a grounded target.json from a repo (deterministic skeleton + agent classification)",
+    )
+    pd.add_argument("--name", required=True, help="target name (dir under targets/)")
+    pd.add_argument("--repo", required=True, help="source repo URL to analyze")
+    pd.add_argument("--sha", default="main", help="commit/branch to check out (default main)")
+    pd.add_argument(
+        "--no-agent",
+        action="store_true",
+        help="skip the classification agent; use the deterministic image-based seed only",
+    )
+    pd.set_defaults(func=cmd_derive_target)
 
     args = p.parse_args()
     args.func(args)

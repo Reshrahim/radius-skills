@@ -3,34 +3,53 @@
   "app_name": "example-voting-app",
   "repo": "https://github.com/dockersamples/example-voting-app",
   "sha": "main",
-  "pattern": "Microservices",
+  "source": "derived",
+  "derivation": {
+    "method": "agent+deterministic",
+    "artifact": "docker-compose.yml",
+    "oracle_sha": "f87d8c0daa75e805d11124c13fad1ff23f728f31"
+  },
+  "ratified": false,
   "expected_components": [
     {
       "id": "vote",
-      "kind": "container",
-      "resource_type": "Radius.Compute/containers"
+      "kind": "service"
     },
     {
       "id": "result",
-      "kind": "container",
-      "resource_type": "Radius.Compute/containers"
+      "kind": "service"
     },
     {
       "id": "worker",
-      "kind": "container",
-      "resource_type": "Radius.Compute/containers"
+      "kind": "service"
+    },
+    {
+      "id": "redis",
+      "kind": "datastore",
+      "technology": "redis"
     },
     {
       "id": "db",
       "kind": "datastore",
-      "resource_type": "Radius.Data/postgreSqlDatabases"
-    }
-  ],
-  "expected_catalog_gaps": [
+      "technology": "postgres"
+    },
     {
-      "technology": "redis",
-      "reason": "no Radius.Data/redisCaches in the supported catalog"
+      "id": "seed",
+      "kind": "service"
     }
   ],
+  "expected_connections": [
+    {
+      "from": "vote",
+      "to": "redis",
+      "key": "redis"
+    },
+    {
+      "from": "worker",
+      "to": "db",
+      "key": "db"
+    }
+  ],
+  "pattern": "Microservices",
   "notes": "Multi-container microservices app. Redis is a real dependency with no supported Radius type; modeling it is a catalog gap, not an agent failure. Published images exist (dockersamples/examplevotingapp_*)."
 }

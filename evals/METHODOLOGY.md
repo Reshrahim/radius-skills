@@ -79,10 +79,22 @@ agent-assisted** design:
 - **Ground truth without an AI golden.** Schema correctness is graded against a
   schema **oracle** — the per-type `test/app.bicep` files vendored from
   `resource-types-contrib` at a pinned SHA (supported types, API versions, valid
-  properties). Per-app completeness is graded against a tiny repo-derived
-  **target spec**. Because the answer key is project-maintained rather than
+  properties). Per-app completeness is graded against a small repo-derived
+  **target spec** that describes the application in app terms only (its `service`
+  and `datastore` components, by technology, and their connections) — it never
+  hardcodes Radius types, so the technology→type mapping (and catalog-gap
+  detection) stays in one oracle-grounded place and the key is durable across
+  catalog changes. Because the answer key is project-maintained rather than
   AI-authored, the eval can catch cases where the **skill itself has drifted**
   from current schemas; a faithful agent then correctly fails.
+
+- **Grounded target derivation (no manual answer key).** Targets are produced by
+  a derivation agent, not hand-written: the component/connection skeleton is
+  extracted **deterministically** from repo artifacts (`docker-compose`/k8s), then
+  a constrained agent only labels each component's kind/technology — it cannot add
+  or drop a component or name a Radius type. The result is written unratified and
+  pinned after a one-time human review, removing the manual step without
+  reintroducing AI-circularity.
 
 - **Multi-run aggregation.** Generation is stochastic, so each target is run
   `N` times (default 5) and scored per check. Results are aggregated into
